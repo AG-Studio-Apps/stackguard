@@ -145,7 +145,7 @@ the app chose, not whatever the tag points at when the host happens to pull.
 The app does not follow the tag directly. It follows a signed manifest,
 `ios-agent-<MAJOR>.json` on this repository's `channel` branch, which names a
 version and the digest of its image, signed with minisign by the maintainer
-(the same two-key roster that signs meshTerm's daemon, embedded in the app).
+(stackGuard's own two-key roster, embedded in the app).
 The app refuses a stale or reused serial, another major, or anything below
 the release it shipped with, and falls back to that release if the channel
 is unreachable. `publish-ios-channel.yml` writes the manifest;

@@ -28,6 +28,12 @@ on:
 permissions:
   contents: write
 
+# One publish at a time: two runs racing on the channel branch could push a
+# duplicate serial or fail non-fast-forward.
+concurrency:
+  group: publish-ios-channel
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -72,28 +78,48 @@ jobs:
           # The serial is the publish time in seconds: monotonic without any
           # state, so a recreated branch or a lost file can never restart
           # numbering below what devices already hold (which would freeze
-          # them on the channel for good). The previous manifest, when there
-          # is one, is still read as a sanity check against clock skew.
-          SERIAL="$(date -u +%s)"
+          # them on the channel for good). A previous manifest that somehow
+          # carries a higher serial (a skewed clock, a hand-pushed file) is
+          # climbed past by one rather than becoming a ceiling nothing can
+          # publish under. The branch is fetched once, here, for every step.
+          NOW="$(date -u +%s)"
+          SERIAL="$NOW"
+          CHANNEL_EXISTS=0
           if git ls-remote --exit-code --heads origin channel >/dev/null 2>&1; then
+            CHANNEL_EXISTS=1
             git fetch --quiet origin channel
             if git cat-file -e "origin/channel:$ASSET" 2>/dev/null; then
               PREV="$(git show "origin/channel:$ASSET" | jq -r '.serial // empty' || true)"
               [[ "$PREV" =~ ^[0-9]+$ ]] || { echo "::error::previous $ASSET serial unreadable ('$PREV')"; exit 1; }
-              [ "$SERIAL" -gt "$PREV" ] || { echo "::error::clock says $SERIAL, previous serial is $PREV"; exit 1; }
+              if [ "$PREV" -ge "$NOW" ]; then
+                SERIAL=$((PREV + 1))
+                echo "::warning::previous serial $PREV is not below the clock ($NOW); using $SERIAL"
+              fi
             fi
           fi
           echo "SERIAL=$SERIAL" >> "$GITHUB_ENV"
+          echo "CHANNEL_EXISTS=$CHANNEL_EXISTS" >> "$GITHUB_ENV"
           echo "serial: $SERIAL"
 
       - name: Write and sign the manifest
         env:
-          MINISIGN_KEY: ${{ inputs.key == 'emergency' && secrets.MINISIGN_KEY2 || secrets.MINISIGN_KEY }}
-          MINISIGN_PASSWORD: ${{ inputs.key == 'emergency' && secrets.MINISIGN_PASSWORD2 || secrets.MINISIGN_PASSWORD }}
+          KEY_ROLE: ${{ inputs.key }}
+          PRIMARY_KEY: ${{ secrets.MINISIGN_KEY }}
+          PRIMARY_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          EMERGENCY_KEY: ${{ secrets.MINISIGN_KEY2 }}
+          EMERGENCY_PASSWORD: ${{ secrets.MINISIGN_PASSWORD2 }}
         run: |
           set -euo pipefail
-          [ -n "$MINISIGN_KEY" ] || { echo "::error::the ${{ inputs.key }} key secret is missing"; exit 1; }
-          echo "signing with the ${{ inputs.key }} key"
+          # The pair is chosen here, in bash, so an empty emergency secret is
+          # an error rather than a silent fall-back to the key being rotated.
+          case "$KEY_ROLE" in
+            primary) MINISIGN_KEY="$PRIMARY_KEY"; MINISIGN_PASSWORD="$PRIMARY_PASSWORD" ;;
+            emergency) MINISIGN_KEY="$EMERGENCY_KEY"; MINISIGN_PASSWORD="$EMERGENCY_PASSWORD" ;;
+            *) echo "::error::unknown key role '$KEY_ROLE'"; exit 1 ;;
+          esac
+          [ -n "$MINISIGN_KEY" ] && [ -n "$MINISIGN_PASSWORD" ] || {
+            echo "::error::the $KEY_ROLE key or its passphrase secret is missing"; exit 1; }
+          echo "signing with the $KEY_ROLE key"
           sudo apt-get update -qq && sudo apt-get install -y -qq minisign
           mkdir -p /tmp/out
           printf '{"schema":1,"serial":%d,"version":"%s","digest":"%s"}\n' "$SERIAL" "$VERSION" "$DIGEST" > "/tmp/out/$ASSET"
@@ -108,14 +134,19 @@ jobs:
             -t "stackguard $CHANNEL serial $SERIAL version $VERSION digest $DIGEST" \
             -m "/tmp/out/$ASSET"
           rm /tmp/minisign.key
+          # The signature must verify against the roster this repository
+          # publishes (the one the app embeds): a secret that drifted from it
+          # would publish a manifest every device rejects, silently.
+          minisign -V -q -p "keys/$KEY_ROLE.pub" -m "/tmp/out/$ASSET" || {
+            echo "::error::the manifest does not verify against keys/$KEY_ROLE.pub; the secret is not this roster"; exit 1; }
+          echo "verified against keys/$KEY_ROLE.pub"
 
       - name: Commit to the channel branch
         run: |
           set -euo pipefail
           git config user.name "publish-ios-channel"
           git config user.email "actions@github.com"
-          if git ls-remote --exit-code --heads origin channel >/dev/null 2>&1; then
-            git fetch --quiet origin channel
+          if [ "$CHANNEL_EXISTS" -eq 1 ]; then
             git checkout --quiet -B channel origin/channel
           else
             git checkout --quiet --orphan channel
