@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- `golang.org/x/crypto` moved to the current release. The advisories were in
+  packages this agent does not import (ssh and others); the module version is
+  what scanners read, so it is current.
+
 ## 1.0.0, first public release
 
 - Watches one or more engine sockets, Docker or Podman, given as
