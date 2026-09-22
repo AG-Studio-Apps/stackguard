@@ -1,0 +1,19 @@
+# Keeps the SHA-pinned actions and the Go module current: Dependabot opens
+# update PRs against develop (main is protected; releases are tagged from
+# main after merge). Security alerts are separate and always on.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: ci
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: deps
