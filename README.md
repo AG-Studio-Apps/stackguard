@@ -135,10 +135,10 @@ docker buildx imagetools inspect ghcr.io/ag-studio-apps/stackguard:1 --format '{
 
 The app pins the major tag (`:1`), never `latest`: a change to the
 environment or wire contract gets a new major and arrives only when the app
-asks for it. Before each deploy the app resolves that tag to a manifest
-digest on the phone and hands the host `stackguard@sha256:…`, so the engine
-pulls and verifies content the app chose, not whatever the tag points at
-when the host happens to pull.
+asks for it. A deploy never uses the tag: the app hands the host
+`stackguard@sha256:…`, the digest named by the signed channel manifest below
+(or the one compiled into the app), so the engine pulls and verifies content
+the app chose, not whatever the tag points at when the host happens to pull.
 
 ## The agent channel
 
@@ -148,8 +148,15 @@ version and the digest of its image, signed with minisign by the maintainer
 (the same two-key roster that signs meshTerm's daemon, embedded in the app).
 The app refuses a stale or reused serial, another major, or anything below
 the release it shipped with, and falls back to that release if the channel
-is unreachable. `publish-ios-channel.yml` writes the manifest; anyone can
-verify one with `minisign -V` and the public key.
+is unreachable. `publish-ios-channel.yml` writes the manifest. The roster is
+in [`keys/`](keys/); to check a manifest yourself:
+
+```sh
+minisign -V -p keys/primary.pub -m ios-agent-1.json
+```
+
+(`keys/emergency.pub` is the offline rotation key; a manifest signed with it
+is valid, and the app says so.)
 
 ## Building it yourself
 

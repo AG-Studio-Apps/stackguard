@@ -61,20 +61,21 @@ jobs:
           echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
           echo "digest: $DIGEST"
 
-      - name: Compute the next serial from the channel branch
+      - name: Compute the serial
         run: |
           set -euo pipefail
-          # Monotonic per channel file. A missing branch or file starts at 1;
-          # a file that exists but is unreadable hard-fails rather than
-          # restarting numbering, which would freeze every device on the
-          # channel (fail-safe for the fleet, a footgun for the publisher).
-          SERIAL=1
+          # The serial is the publish time in seconds: monotonic without any
+          # state, so a recreated branch or a lost file can never restart
+          # numbering below what devices already hold (which would freeze
+          # them on the channel for good). The previous manifest, when there
+          # is one, is still read as a sanity check against clock skew.
+          SERIAL="$(date -u +%s)"
           if git ls-remote --exit-code --heads origin channel >/dev/null 2>&1; then
             git fetch --quiet origin channel
             if git cat-file -e "origin/channel:$ASSET" 2>/dev/null; then
               PREV="$(git show "origin/channel:$ASSET" | jq -r '.serial // empty' || true)"
               [[ "$PREV" =~ ^[0-9]+$ ]] || { echo "::error::previous $ASSET serial unreadable ('$PREV')"; exit 1; }
-              SERIAL=$((PREV + 1))
+              [ "$SERIAL" -gt "$PREV" ] || { echo "::error::clock says $SERIAL, previous serial is $PREV"; exit 1; }
             fi
           fi
           echo "SERIAL=$SERIAL" >> "$GITHUB_ENV"
