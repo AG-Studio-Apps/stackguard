@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.2
+
+- Security hardening ahead of a review pass: Engine API reads for version,
+  list and inspect are bounded by a 32 MiB limit, and inspect rejects a
+  container id that is not plain hex, so a hostile or buggy daemon response
+  cannot grow memory without bound or retarget the API path.
+- The builder base image is pinned by digest and every GitHub Actions step is
+  pinned to a commit, so a retagged upstream cannot enter a signed release.
+- The iOS channel publish now runs `cosign verify` on the resolved digest
+  before signing the channel manifest, linking the channel's trust to the
+  image's keyless signature rather than a mutable tag.
+
 ## 1.0.1
 
 - `golang.org/x/crypto` moved to the current release. The advisories were in

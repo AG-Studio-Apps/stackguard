@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # create the GitHub Release on a tag
   packages: write
   id-token: write # cosign keyless signing
 
@@ -69,3 +69,22 @@ jobs:
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Sign the image (keyless)
         run: cosign sign --yes "ghcr.io/ag-studio-apps/stackguard@${{ steps.build.outputs.digest }}"
+
+      # A tag push also cuts a GitHub Release, its notes taken from the
+      # CHANGELOG section for this version. Skipped on a manual dispatch,
+      # which has no tag to release.
+      - name: Release notes from the changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${{ steps.major.outputs.version }}"
+          awk -v v="$v" '
+            $0 ~ ("^## " v "([,.[:space:]]|$)") {f=1; print; next}
+            f && /^## / {exit}
+            f {print}
+          ' CHANGELOG.md > release-notes.md
+          [ -s release-notes.md ] || echo "stackGuard v$v" > release-notes.md
+      - name: Publish the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          body_path: release-notes.md
