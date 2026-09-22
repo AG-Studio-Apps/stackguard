@@ -135,7 +135,10 @@ docker buildx imagetools inspect ghcr.io/ag-studio-apps/stackguard:1 --format '{
 
 The app pins the major tag (`:1`), never `latest`: a change to the
 environment or wire contract gets a new major and arrives only when the app
-asks for it.
+asks for it. Before each deploy the app resolves that tag to a manifest
+digest on the phone and hands the host `stackguard@sha256:…`, so the engine
+pulls and verifies content the app chose, not whatever the tag points at
+when the host happens to pull.
 
 ## Building it yourself
 
