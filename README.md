@@ -173,6 +173,18 @@ You can point it at a relay of your own: implement [PROTOCOL.md](PROTOCOL.md)
 and set `MESHDECK_RELAY_HOST`. The encryption between agent and phone does not
 involve the relay at all.
 
+## Branches and releases
+
+Work happens on `develop` and lands on `main` by pull request; `main` is
+protected and a release is cut by tagging `main` after the merge. PRs are
+rebase-merged, which replays `develop`'s commits as new SHAs on `main`, so
+`develop` is left showing "ahead and behind" `main` with identical content.
+Realign it after every merge so the two branches never drift:
+
+```sh
+git checkout develop && git reset --hard origin/main && git push -f origin develop
+```
+
 ## Licence
 
 Apache License 2.0; see [LICENSE](LICENSE). The names stackGuard and meshDeck
