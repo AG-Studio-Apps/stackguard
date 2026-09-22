@@ -1,0 +1,71 @@
+# Build, sign and push the multi-arch stackGuard image to GHCR.
+#
+# Auth is the built-in GITHUB_TOKEN: no PAT, no stored secret. The image is
+# signed with cosign (keyless: the signing identity is this workflow, via
+# GitHub's OIDC issuer) and carries SLSA provenance and an SBOM, so anyone can
+# check that what they pull came from this repository's CI at a commit they
+# can read (see README, "Verifying the image").
+#
+# Triggers on a version tag (v*) or by hand. The app pins the major tag (never
+# `latest`), taken from the git tag (v1.2.0 publishes `:1`), so a change to
+# the environment or wire contract moves to a new major deliberately and
+# arrives only when the app asks for it. A manual run publishes the major of
+# the newest tag.
+name: Publish stackGuard image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # cosign keyless signing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the major on a manual run
+
+      # A broken build never becomes a published image.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go vet ./... && go test ./... -count=1
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Major tag from the version tag
+        id: major
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in v*) ;; *) tag="$(git describe --tags --abbrev=0 --match 'v*')" ;; esac
+          major="${tag#v}"; major="${major%%.*}"
+          [ -n "$major" ] || { echo "::error::no version tag"; exit 1; }
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ghcr.io/ag-studio-apps/stackguard:${{ steps.major.outputs.major }}
+            ghcr.io/ag-studio-apps/stackguard:${{ steps.major.outputs.version }}
+            ghcr.io/ag-studio-apps/stackguard:sha-${{ github.sha }}
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the image (keyless)
+        run: cosign sign --yes "ghcr.io/ag-studio-apps/stackguard@${{ steps.build.outputs.digest }}"
