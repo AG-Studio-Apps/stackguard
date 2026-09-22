@@ -85,9 +85,10 @@ the distroless `nonroot` convention: unassigned on stock distributions). The
 host socket is owned `root:docker` (or `root:root` for rootful Podman) with a
 group id that differs per host, so the app reads that group off the host and
 adds it to the container at deploy; a rootless Podman agent runs as the user
-who owns the socket, mapped to the same uid inside (`keep-id`). The one
-exception is a host the app cannot inspect (a Portainer host): there it runs
-the agent as root and says so on the install screen.
+who owns the socket, mapped to the same uid inside (`keep-id`). Where the
+app does not know the socket's group (a host it reaches only through
+Portainer, or an environment it has not yet inspected) it deploys the agent
+as root and says so on the install screen, with the way to fix it.
 
 One line here deserves a second look. Rootful Podman's socket is
 `root:root 0660` and there is no `podman` group to add, so for that socket

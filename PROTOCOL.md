@@ -82,7 +82,8 @@ host) replaces the banner; `apns-expiration` now + 1 h (24 h for updates).
 
 ## The blob (agent and app; the relay never touches it)
 v1: ChaCha20-Poly1305. A 32-byte payload key minted by the app when it
-creates the host and handed to the agent with the hostToken (stack secrets).
+creates the host and handed to the agent with the hostToken, in the
+container's environment (`MESHDECK_KEY`).
 12-byte random nonce. AAD = the hostID as UTF-8.
 `blob = base64(nonce ‖ ciphertext ‖ tag)`, ≤ 2048 characters encoded.
 Plaintext, JSON:
@@ -93,5 +94,5 @@ Plaintext, JSON:
 `host` is the display name the user gave the host in the app (the agent is
 told it at enrolment); `engine` (`docker` / `podman`) is optional and omitted
 when unknown; `detail` is one short human sentence the extension shows as the
-body. Apple CryptoKit on iOS (`ChaChaPoly`), swift-crypto on
-Linux for the agent.
+body. Apple CryptoKit on iOS (`ChaChaPoly`); `golang.org/x/crypto/chacha20poly1305`
+in the agent.
