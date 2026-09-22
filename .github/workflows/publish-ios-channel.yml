@@ -1,0 +1,128 @@
+# Publishes the signed agent channel manifest the meshDeck app follows:
+# `ios-agent-<MAJOR>.json` + `.minisig` on the `channel` branch, one file per
+# image major. The app verifies the signature against the minisign roster
+# embedded in it, refuses a stale or reused serial, and only ever moves to a
+# stable release in its compiled major at or above its compiled pin; on any
+# failure it keeps the compiled pin. Design: the app repo's
+# docs/AGENT_CHANNEL.md. Manual only:
+#
+#   gh workflow run publish-ios-channel -f version=1.0.2
+#
+# The version must be a published release of this repository: its image tag
+# on GHCR is resolved to the index digest that the manifest names, so the
+# fleet pulls content, not a tag.
+name: publish-ios-channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable agent version the fleet should pin (bare X.Y.Z, e.g. 1.0.2)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      IMAGE: ghcr.io/ag-studio-apps/stackguard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate the version is a stable release of this repository
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::version '$VERSION' is not a bare stable X.Y.Z"; exit 1; }
+          TAG_SHA="$(git rev-list -n1 "refs/tags/v$VERSION" 2>/dev/null || true)"
+          [ -n "$TAG_SHA" ] || { echo "::error::tag v$VERSION does not exist"; exit 1; }
+          git merge-base --is-ancestor "$TAG_SHA" origin/main || {
+            echo "::error::tag v$VERSION is not on main's ancestry"; exit 1; }
+          MAJOR="${VERSION%%.*}"
+          echo "MAJOR=$MAJOR" >> "$GITHUB_ENV"
+          echo "CHANNEL=ios-agent-$MAJOR" >> "$GITHUB_ENV"
+          echo "ASSET=ios-agent-$MAJOR.json" >> "$GITHUB_ENV"
+
+      - name: Resolve the image tag to its index digest
+        run: |
+          set -euo pipefail
+          TOKEN="$(curl -sf "https://ghcr.io/token?scope=repository:ag-studio-apps/stackguard:pull" | jq -r .token)"
+          DIGEST="$(curl -sfI -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/ag-studio-apps/stackguard/manifests/$VERSION" \
+            | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:" {print $2}')"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for $IMAGE:$VERSION ('$DIGEST')"; exit 1; }
+          echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          echo "digest: $DIGEST"
+
+      - name: Compute the next serial from the channel branch
+        run: |
+          set -euo pipefail
+          # Monotonic per channel file. A missing branch or file starts at 1;
+          # a file that exists but is unreadable hard-fails rather than
+          # restarting numbering, which would freeze every device on the
+          # channel (fail-safe for the fleet, a footgun for the publisher).
+          SERIAL=1
+          if git ls-remote --exit-code --heads origin channel >/dev/null 2>&1; then
+            git fetch --quiet origin channel
+            if git cat-file -e "origin/channel:$ASSET" 2>/dev/null; then
+              PREV="$(git show "origin/channel:$ASSET" | jq -r '.serial // empty' || true)"
+              [[ "$PREV" =~ ^[0-9]+$ ]] || { echo "::error::previous $ASSET serial unreadable ('$PREV')"; exit 1; }
+              SERIAL=$((PREV + 1))
+            fi
+          fi
+          echo "SERIAL=$SERIAL" >> "$GITHUB_ENV"
+          echo "serial: $SERIAL"
+
+      - name: Write and sign the manifest
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$MINISIGN_KEY" ] || { echo "::error::MINISIGN_KEY secret missing"; exit 1; }
+          sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+          mkdir -p /tmp/out
+          printf '{"schema":1,"serial":%d,"version":"%s","digest":"%s"}\n' "$SERIAL" "$VERSION" "$DIGEST" > "/tmp/out/$ASSET"
+          jq . "/tmp/out/$ASSET"
+          echo "$MINISIGN_KEY" > /tmp/minisign.key
+          chmod 600 /tmp/minisign.key
+          # The trusted comment binds the signature to this manifest's semantics,
+          # channel included. Bash twin of AgentChannel.expectedTrustedComment
+          # in the app; drift here freezes the channel (fail-safe, but a footgun).
+          echo "$MINISIGN_PASSWORD" | minisign -S \
+            -s /tmp/minisign.key \
+            -t "stackguard $CHANNEL serial $SERIAL version $VERSION digest $DIGEST" \
+            -m "/tmp/out/$ASSET"
+          rm /tmp/minisign.key
+
+      - name: Commit to the channel branch
+        run: |
+          set -euo pipefail
+          git config user.name "publish-ios-channel"
+          git config user.email "actions@github.com"
+          if git ls-remote --exit-code --heads origin channel >/dev/null 2>&1; then
+            git fetch --quiet origin channel
+            git checkout --quiet -B channel origin/channel
+          else
+            git checkout --quiet --orphan channel
+            git rm -rfq --cached . && git clean -fdxq -e /tmp/out
+            printf '# stackGuard agent channel\n\nSigned manifests read by the meshDeck app. Written only by the publish-ios-channel workflow.\n' > README.md
+          fi
+          cp "/tmp/out/$ASSET" "/tmp/out/$ASSET.minisig" .
+          git add README.md "$ASSET" "$ASSET.minisig"
+          git commit -q -m "$CHANNEL serial $SERIAL: $VERSION ($DIGEST)"
+          git push -q origin channel
+          {
+            echo "## Agent channel published"
+            echo "- channel: \`$ASSET\`"
+            echo "- version: \`$VERSION\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- serial: \`$SERIAL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
