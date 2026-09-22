@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  packages: read # pull the image signature for the cosign cross-check
 
 # One publish at a time: two runs racing on the channel branch could push a
 # duplicate serial or fail non-fast-forward.
@@ -71,6 +72,27 @@ jobs:
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for $IMAGE:$VERSION ('$DIGEST')"; exit 1; }
           echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
           echo "digest: $DIGEST"
+
+      # The channel manifest must name only a digest this repository's own
+      # publish.yml signed. Without this, a digest resolved from the mutable
+      # tag would be trusted on the tag alone; here it must carry the keyless
+      # cosign signature whose certificate identity is a workflow in this repo
+      # (the same signature the README tells users to verify). A poisoned tag,
+      # even behind a registry-write compromise, has no such signature and the
+      # publish stops.
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Verify the image's cosign signature
+        run: |
+          set -euo pipefail
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity-regexp '^https://github.com/AG-Studio-Apps/stackguard/' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
+          echo "cosign: $IMAGE@$DIGEST is signed by this repository"
 
       - name: Compute the serial
         run: |
