@@ -1,7 +1,7 @@
 # Security
 
 stackGuard reads a container engine's socket, which is host access, so a flaw
-here matters. If you find one, email **security@ag-applications.com** with
+here matters. If you find one, email **james@ag-applications.com** with
 what you found and how to reproduce it, and we will answer within five working
 days. Please do not open a public issue for something exploitable until we
 have had a chance to fix it.
