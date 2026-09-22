@@ -12,5 +12,7 @@
 - The relay is named by the app in `MESHDECK_RELAY_HOST`; nothing is built in.
 - A socket that does not answer at start is kept and retried; each list and
   inspect runs under a 30 s deadline; none answering exits 69.
+- Runs as a fixed non-root user; the app adds the socket's group at deploy
+  (a rootless Podman agent runs as the socket's owner under `keep-id`).
 - Images for linux/amd64 and linux/arm64 on `scratch`, with provenance, an
   SBOM and a cosign signature.

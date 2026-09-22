@@ -67,6 +67,8 @@ The app creates the container like this, and nothing more:
 
 ```
 image:          ghcr.io/ag-studio-apps/stackguard:1
+user:           65532:65532 (the image's own), plus group_add <the socket's gid>
+                or, for a rootless Podman socket, the user itself under userns keep-id
 binds:          /var/run/docker.sock:/var/run/docker.sock:ro   (one per socket)
 cap_drop:       ALL
 privileged:     false
@@ -78,15 +80,19 @@ One agent watches every socket of its privilege domain (root's Docker and
 root's Podman together; a user's rootless Podman on its own), and each alert
 says which engine it came from.
 
-**It runs as root inside the container.** The host socket is owned
-`root:docker` with a group id that differs per host, so no fixed non-root uid
-can be granted it. Read the Dockerfile before deciding what that means: with
-every capability dropped and the socket mounted read-only, root buys the
-process nothing beyond opening the socket. The honest framing, which the app
-repeats on its install screen, is that **socket access is host access**
-whatever the uid: anything that can talk to an engine socket can ask it to
-start a container with the host's filesystem in it. Deploy this only on hosts
-you already trust meshDeck with.
+**It does not run as root.** The image sets a fixed non-root user (65532).
+The host socket is owned `root:docker` (or `root:root` for rootful Podman)
+with a group id that differs per host, so the app reads that group off the
+host and adds it to the container at deploy; a rootless Podman agent runs as
+the user who owns the socket, mapped to the same uid inside (`keep-id`). The
+one exception is a host the app cannot inspect (a Portainer host): there it
+runs the agent as root and says so on the install screen.
+
+Read the Dockerfile before deciding what any of this means, because the
+honest framing, which the app repeats on its install screen, is that
+**socket access is host access** whatever the uid: anything that can talk to
+an engine socket can ask it to start a container with the host's filesystem
+in it. Deploy this only on hosts you already trust meshDeck with.
 
 ## What it decides
 

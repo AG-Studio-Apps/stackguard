@@ -8,8 +8,9 @@ have had a chance to fix it.
 
 Things that are by design and not vulnerabilities on their own:
 
-- the container runs as root (see the Dockerfile and README: every capability
-  is dropped and the socket is read-only; root buys only opening the socket);
+- the container is handed the engine socket's group (or, for rootless Podman,
+  runs as the socket's owner): that is what reading the socket takes, and
+  reading the socket is host access whatever the uid;
 - the relay address, host id, token and payload key arrive in the
   environment; the app writes them at deploy, and they are visible to anyone
   who can inspect the container, which is anyone who can read the socket.
