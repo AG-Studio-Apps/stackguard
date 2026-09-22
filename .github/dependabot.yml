@@ -1,8 +1,14 @@
-# Keeps the SHA-pinned actions and the Go module current: Dependabot opens
-# update PRs against develop (main is protected; releases are tagged from
-# main after merge). Security alerts are separate and always on.
+# Keeps the SHA-pinned actions, the Go module and the Dockerfile base image
+# current, without nagging about breaking major bumps. Dependabot opens grouped
+# update PRs against develop (main is protected; releases are tagged from main
+# after merge). It never merges anything, and security alerts are a separate
+# channel the ignore rules below do not touch.
 version: 2
 updates:
+  # GitHub Actions: one grouped PR for safe (patch/minor) bumps that keep each
+  # SHA pin current within its major. Major bumps (e.g. checkout v4 -> v7) can
+  # change behaviour in a signing pipeline, so they are ignored and moved by
+  # hand; a real security fix still arrives as a security alert regardless.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -10,6 +16,16 @@ updates:
     target-branch: develop
     commit-message:
       prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Go modules: one grouped PR. Few, direct deps (x/crypto and its indirects);
+  # a major bump there needs code changes, so it is left visible rather than
+  # ignored.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -17,3 +33,21 @@ updates:
     target-branch: develop
     commit-message:
       prefix: deps
+    groups:
+      go-modules:
+        patterns: ["*"]
+
+  # The Dockerfile base image (golang:1.26-alpine, pinned by digest): keep it on
+  # the 1.26 line, taking Go patch and minor releases (this is what keeps the
+  # standard library patched, per govulncheck), but do not jump a major image
+  # version automatically.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: "golang"
+        update-types: ["version-update:semver-major"]
