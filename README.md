@@ -148,8 +148,9 @@ version and the digest of its image, signed with minisign by the maintainer
 (the same two-key roster that signs meshTerm's daemon, embedded in the app).
 The app refuses a stale or reused serial, another major, or anything below
 the release it shipped with, and falls back to that release if the channel
-is unreachable. `publish-ios-channel.yml` writes the manifest. The roster is
-in [`keys/`](keys/); to check a manifest yourself:
+is unreachable. `publish-ios-channel.yml` writes the manifest;
+`scripts/provision-keys.sh` is how the roster was made. The roster is in
+[`keys/`](keys/); to check a manifest yourself:
 
 ```sh
 minisign -V -p keys/primary.pub -m ios-agent-1.json

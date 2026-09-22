@@ -19,6 +19,11 @@ on:
       version:
         description: "Stable agent version the fleet should pin (bare X.Y.Z, e.g. 1.0.2)"
         required: true
+      key:
+        description: "Which roster key signs: primary (MINISIGN_KEY) or emergency (MINISIGN_KEY2, the rotation key)"
+        type: choice
+        options: [primary, emergency]
+        default: primary
 
 permissions:
   contents: write
@@ -83,11 +88,12 @@ jobs:
 
       - name: Write and sign the manifest
         env:
-          MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
-          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          MINISIGN_KEY: ${{ inputs.key == 'emergency' && secrets.MINISIGN_KEY2 || secrets.MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ inputs.key == 'emergency' && secrets.MINISIGN_PASSWORD2 || secrets.MINISIGN_PASSWORD }}
         run: |
           set -euo pipefail
-          [ -n "$MINISIGN_KEY" ] || { echo "::error::MINISIGN_KEY secret missing"; exit 1; }
+          [ -n "$MINISIGN_KEY" ] || { echo "::error::the ${{ inputs.key }} key secret is missing"; exit 1; }
+          echo "signing with the ${{ inputs.key }} key"
           sudo apt-get update -qq && sudo apt-get install -y -qq minisign
           mkdir -p /tmp/out
           printf '{"schema":1,"serial":%d,"version":"%s","digest":"%s"}\n' "$SERIAL" "$VERSION" "$DIGEST" > "/tmp/out/$ASSET"
