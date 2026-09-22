@@ -2,7 +2,9 @@
 # shell, no package manager, nothing to exploit if a watched container is not.
 # Multi-arch (amd64 + arm64) so it runs on a Pi as happily as a NUC.
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+# Builder pinned by digest so a retagged upstream cannot enter a signed
+# release build; bump deliberately (docker buildx imagetools inspect golang:1.26-alpine).
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
