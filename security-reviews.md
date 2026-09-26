@@ -3,6 +3,44 @@
 A running record of the security reviews run against stackGuard, what they
 found, and what was done. Newest first.
 
+## 2026-09-26: post-1.0.2 review
+
+Reviewed at revision `da3f5ff` (branch `develop`) with a Claude Security
+multi-agent scan of the whole repository at medium effort (inventory, threat
+model, per-component research, and the three-lens verification panel).
+
+**Result: 1 finding, verification status `verified`.** Unlike the 2026-09-22
+report, this one is committed, under `CLAUDE-SECURITY-20260926-213603/`.
+
+### F1 — release pipeline did not restrict the ref to main's ancestry (CWE-862, MEDIUM)
+
+`publish.yml` triggered on any pushed `v*` tag or `workflow_dispatch` branch and
+built, pushed, cosign-signed and released whatever commit that ref pointed at,
+with no check that it was on the protected `main` branch. Because branch
+protection does not extend to tags, an off-main tag (or a dispatch on an off-main
+branch) could ship a never-reviewed commit as the repository-signed `:1` image,
+passing the exact `cosign verify` the README documents. The sibling
+`publish-ios-channel.yml` already gated on `git merge-base --is-ancestor …
+origin/main`; `publish.yml` had no equivalent. The panel voted 2/3: the
+reachability lens noted the trigger needs an actor who already holds write
+access, while the impact and defenses lenses held that a repo-signed image cut
+from unreviewed off-main code is a real bypass of the documented release control.
+
+### Fix applied from the scan
+
+`publish.yml` now runs a fail-closed `git merge-base --is-ancestor
+"$GITHUB_SHA" origin/main` gate immediately after checkout and before every
+build/push/sign/release step, refusing any ref not on main's ancestry — the same
+gate `publish-ios-channel.yml` uses. `$GITHUB_SHA` is the built commit for both
+triggers, so the off-main tag and off-main dispatch routes are both closed. The
+patch was verified by the scan's patch panel (an independent reviewer plus a
+fresh researcher who found no bypass and no new attack path) and merged via
+PR #13 (commit `821cf4e`).
+
+Recommended as defense in depth, outside the workflow file: a GitHub `v*`
+tag-protection ruleset and/or a protected `release` deployment environment, so
+the guarantee does not rest on the workflow alone.
+
 ## 2026-09-22: pre-1.0.2 review
 
 Reviewed at revision `b8cd01f` (branch `develop`), ahead of cutting `v1.0.2`.
