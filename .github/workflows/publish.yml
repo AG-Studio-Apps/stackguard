@@ -32,6 +32,18 @@ jobs:
         with:
           fetch-depth: 0 # tags, for the major on a manual run
 
+      # Only a commit on the protected main branch may be built, pushed,
+      # signed and released. A v* tag or a manual dispatch can point at any
+      # commit (main's branch protection does not extend to tags), so refuse
+      # anything that is not on main's ancestry before it reaches the registry
+      # push, the keyless cosign signing or the GitHub Release — the same gate
+      # publish-ios-channel.yml applies before it trusts a tag.
+      - name: Refuse a ref that is not on main's ancestry
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::commit $GITHUB_SHA is not on main's ancestry; refusing to publish"; exit 1; }
+
       # A broken build never becomes a published image.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
