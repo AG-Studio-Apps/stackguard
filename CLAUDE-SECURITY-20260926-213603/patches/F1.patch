@@ -1,0 +1,44 @@
+# Claude Security -- suggested patch for F1: Image build/sign/release pipeline does not restrict the ref to main's ancestry, letting any pushed tag or dispatched branch become the repo-signed :1 image
+# Applies to revision da3f5ff15143 (the revision these patches were built against).
+#
+# Verified by a panel of agents: an independent verifier reviewed this
+# change against the finding, and a second, fresh reviewer challenged the
+# diff for an attack path it opens, or a route it leaves open to the
+# finding's exploit. The patch was written only because the panel stated
+# all three of these with confidence:
+#   - the change is highly targeted to this finding: git diff --cached --name-status shows only .github/workflows/publish.yml; a single hunk adding one gate step that mirrors publish-ios-channel.yml, no other line touched
+#   - the change introduces no new security vulnerability: the gate only adds a fail-closed refusal using GitHub's $GITHUB_SHA (a 40-hex env var, not ${{ }} interpolation) and origin/main from the authenticated checkout, so no command/expression injection and no new surface
+#   - beyond closing the finding, the change does not alter the code's behaviour or the inputs it accepts: the only change to accepted input is turning away off-main refs at the publish sinks, which is the intended fix; legitimate on-main tags and dispatches still build/push/sign/release unchanged
+#
+# NOTE: no project test of the patched code was run. The claim that
+# behaviour is unchanged rests on review of the change and its callers,
+# not on a test run -- weigh it accordingly before applying.
+#
+# publish.yml built, pushed, cosign-signed and released whatever commit any v* tag or dispatched branch pointed at, with no check it was on main; the patch adds a fail-closed 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' gate right after checkout, mirroring publish-ios-channel.yml, so an off-main ref is refused before any publish/sign/release step.
+# Tests run: none possible: no Go toolchain on this box, and the Go suite does not exercise .github/workflows; verifier probe (not a project test): python3 yaml.safe_load(publish.yml) parsed, gate confirmed at step index 1 before setup-go, go test, build-push, cosign sign and the release
+#
+# Apply, from the repository root:  git apply CLAUDE-SECURITY-20260926-213603/patches/F1.patch
+#
+diff --git a/.github/workflows/publish.yml b/.github/workflows/publish.yml
+index 0c552e8..36ae324 100644
+--- a/.github/workflows/publish.yml
++++ b/.github/workflows/publish.yml
+@@ -32,6 +32,18 @@ jobs:
+         with:
+           fetch-depth: 0 # tags, for the major on a manual run
+ 
++      # Only a commit on the protected main branch may be built, pushed,
++      # signed and released. A v* tag or a manual dispatch can point at any
++      # commit (main's branch protection does not extend to tags), so refuse
++      # anything that is not on main's ancestry before it reaches the registry
++      # push, the keyless cosign signing or the GitHub Release — the same gate
++      # publish-ios-channel.yml applies before it trusts a tag.
++      - name: Refuse a ref that is not on main's ancestry
++        run: |
++          set -euo pipefail
++          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
++            echo "::error::commit $GITHUB_SHA is not on main's ancestry; refusing to publish"; exit 1; }
++
+       # A broken build never becomes a published image.
+       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+         with:
